@@ -5,7 +5,9 @@ sys.path.append('/home/david/bin')
 sys.path.append('/home/david/dev/common')
 from readprocpar import procparReader
 from readfdf import fdfReader
-
+from scipy.ndimage.filters import gaussian_filter
+from scipy.ndimage.filters import median_filter
+from scipy.signal import wiener
 from writenifti import niftiWriter
 import matplotlib.pyplot as plt
 import numpy as np
@@ -54,11 +56,39 @@ class dixon():
 		self.freq = freq
 		print('self.data.shape : '+str(self.data.shape))
 	
-	def ideal(self):
+	def ideal(self, iterations, masked=False):
 		"""
 		F,S,RO : k th iter
 		Fp,Sp,ROp : k+1 th iter 
 		"""
+		def filter_fieldmap(fieldmap,sigma):
+
+			#fieldmap = gaussian_filter(fieldmap,sigma)
+			#fieldmap = median_filter(fieldmap, size=5)
+			fieldmap = wiener(fieldmap,1)
+			return fieldmap
+
+		def recalc_ro_final(ro, A, field, S):
+
+			# fullA shape: [Ai, Aj, 1, slice, x, y]			
+			fullA = np.repeat(A,S.size).reshape(A.shape + S.shape,order='c')
+
+			
+
+			ro =  np.linalg.multi_dot((np.linalg.inv(np.dot(A.T,A)),A.T,S))
+			return ro
+
+		def make_masked(data):
+			# data is a list of ndarrays
+			#print(self.data.shape)
+			#print(data.shape)
+			noise = np.abs(np.mean(self.data[0,0,:,:3,:]))
+			masked = data
+			print('noise level : '+str(noise))
+			masked[np.absolute(data) < 6*noise] = 0
+			return masked
+			#return np.asarray([masked for i in data])
+
 		def make_Acd(roshift,freq=[0,1400]):
 			A = np.zeros((2*len(roshift),2*len(freq)))
 			#print(A.shape)
@@ -137,9 +167,14 @@ class dixon():
 			"""
 			actual iteration starts here
 			"""
+			# make mask working
+			# if data = 0 return zeros....
+
 			f = 0 # init fieldmap=0
 			#start = time.time()
-			for i in range(10):
+			for i in range(iterations):
+				#if data1D.all() == 0:
+				#	return np.zeros(10)
 				Sh = Sh_from_f(data1D,f,freq,roshift)
 				ro = ro_from_Sh(Sh,A)
 				#print('elapsed time 1 : '+str(time.time()-start))
@@ -147,16 +182,27 @@ class dixon():
 				y = y_from_Sh(Sh,B)
 				#print('elapsed time 2 : '+str(time.time()-start))
 				f = np.asarray(f + y[0]) # recalculate field
+				# make iteration stop on voxel basis
+				#if abs(y[0]) < 2:
+				#	break
 				#now = time.time()
 				#print('elapsed time 3 : '+ str(now-start))
 			#return (ro,y)
 			#print('shapes before out : ro, y, f : ' +str(ro.shape)+' ; '+str(y.shape)+' ; '+str(f.shape))
+			#print('fit time for 1 voxel, all iteration: '+str(time.time() - start))
 			return np.concatenate([ro,y,np.atleast_1d(f)])
 			#return ro
-
+		"""
+		IDEAL method main
+		
+		"""
+		if masked == True:
+			data = make_masked(self.data)
+		else:
+			data = self.data 
 		A,c,d = make_Acd(self.roshift)
 		#out = np.apply_along_axis(data,fit,axis=0)
-		out = np.apply_along_axis(fit,0,self.data, self.roshift,A,c,d)
+		out = np.apply_along_axis(fit,0,data, self.roshift,A,c,d)
 		print('out of applyalongaxin in d.ideal : '+str(out.shape))
 		print(out[0,...].shape)
 		print(out[1,...].shape)
@@ -164,35 +210,68 @@ class dixon():
 		ro = out[0:2*len(self.freq),...]
 		y = out[2*len(self.freq):-1,...]
 		f = out[-1,...]
+		# filtering field map and recalc ros for finalizing
+		
+		#f = filter_fieldmap(f,1)
+		#ro = recalc_ro_final(ro, A, f, self.data)
+
+		#nake ro relative
+		#ro = make_ro_relative(ro)
 		#print('shapes before out : ro, y, f : ' +str(ro.shape)+' ; '+str(y.shape)+' ; '+str(f.shape))
-		return ro, y , f
+		return ro, y , f, data # data is the masked data
 
 if __name__ == '__main__':
 	data, roshift = load_data()
 	print('in data shape : '+str(data[0].shape))
 	cut_data = []
 	for item in data:
-		cut_data.append(item[:,55:57,:,:]) 
+		cut_data.append(item[:,58:59,:,:]) 
+
 
 	starttime = time.time()
-	dix = dixon(cut_data, roshift, freq=[0,1400])
-	ro, y, f = dix.ideal()
+	dix = dixon(cut_data, roshift, freq=[0,1350])
+	ro, y, f, mask = dix.ideal(20)
+
+
 	print('elapsed time at main : '+str(time.time()-starttime))
 	print('shapes ro, y, f : ' +str(ro.shape)+' ; '+str(y.shape)+' ; '+str(f.shape))
 	print('dixon.ideal output shape : '+str(ro.shape)+' ; '+str(y.shape))
 	abs_ro1 = np.absolute(np.vectorize(complex)(ro[0,...],ro[1,...]))
 	abs_ro2 = np.absolute(np.vectorize(complex)(ro[2,...],ro[3,...]))
 	print('abs_ro shape : '+str(abs_ro1.shape))
+	# make ro percentage
+	rel_ro1 = np.divide(abs_ro1,abs_ro1+abs_ro2)
+	rel_ro2 = np.divide(abs_ro2,abs_ro1+abs_ro2)
+
 	# plotting stuff
-	fig, axes = plt.subplots(4,1)
-	plt.subplot(4,1,1)
+	#fig, axes = plt.subplots(4,1)
+	#ro_plot = []
+
+
+
+
+	plt.subplot(2,4,1)
 	#ind 1 is the sliceindex
-	plt.imshow(abs_ro1[0,0,:,:],cmap='gray')
-	plt.subplot(4,1,2)
-	plt.imshow(abs_ro2[0,0,:,:],cmap='gray')
-	plt.subplot(4,1,3)
-	plt.imshow(f[0,0,:,:],cmap='gray')
-	plt.subplot(4,1,4)
+	plt.imshow(rel_ro1[0,0,:,:],cmap='gray')
+	plt.title('water')
+	plt.subplot(2,4,2)
+	plt.imshow(rel_ro2[0,0,:,:],cmap='gray')
+	plt.title('fat')
+	plt.subplot(2,4,3)
+	plt.imshow(f[0,0,:,:],cmap='gray', vmin=-500, vmax=500)
+	plt.title('fieldmap')
+	plt.subplot(2,4,4)
 	# ind 2 is the sliceindex ?
-	plt.imshow(y[0,0,0,:,:])
+	plt.imshow(y[0,0,0,:,:],cmap='gray',vmin=-1000,vmax=1000)
+	plt.title('field error')
+	plt.subplot(2,4,5)
+	plt.imshow(np.abs(cut_data[0][0,0,:,:]),cmap='gray')
+	plt.title('original')
+	plt.subplot(2,4,6)
+	plt.imshow(np.abs(mask[0][0,0,:,:]),cmap='gray')
+	plt.title('masked')
+	plt.subplot(2,4,7)
+	plt.imshow(np.arctan2(np.real(cut_data[0][0,0,:,:]),np.imag(cut_data[0][0,0,:,:])),cmap='gray')
+	plt.title('phase')
 	plt.show()
+	
