@@ -79,8 +79,17 @@ class dixonProc():
 				data[k,...] = data[k,...]*np.exp(-1j*2*np.pi*field*shift)			
 			return data
 
-		def fit_voxelvise(data1D, roshift, A, c, d, freq):
+		def apply_T2_correction(data, t2map, roshift):
 
+			for k, shift in enumerate(roshift):
+				data[k,...] = data[k,...]*np.exp(-1j*2*np.pi*field*shift)			
+			return data
+
+		def fit_voxelvise(data1D, roshift, A, c, d, freq):
+			"""
+			Voxelvise least-squares fitting to dixon data. Returns the fit result (ro)
+			and the error terms y (delta_field, delta_ro1, etc..) 
+			"""
 			def S_complex_to_real(data1D, field, freq, roshift):
 
 				S = data1D
@@ -111,36 +120,69 @@ class dixonProc():
 				B[len(gim):,0] = gim
 
 				return B
+
+			def y_from_S(S,B):# y contains the error terms delta_field, delta_ro 	
+
+				return np.linalg.multi_dot((np.linalg.inv(np.dot(B.T,B)),B.T,S))
+
 			S = S_complex_to_real(data1D, field, freq, roshift)
-			ro = ro_from_S(S,A)
-			return ro
+			ro = ro_from_S(S, A)
+			B = B_from_ro(ro, A, c, d, roshift, self.freq)
+			y = y_from_S(S, B)
+
+			return np.concatenate([ro, y])
 
 		def save_results_to_nifti(out, affine, header):
 
+			# out shape is [ro1re, ro1im, ro2re, ro2im, y1re, y1im ....] (9,read,phase,slice,1)
+
+			ro = out[0:2*len(self.freq),...]
+			y = out[2*len(self.freq):-1,...]
+
 			roshape = tuple([len(self.freq)])+out[0].shape
 			ro = np.ones(roshape,dtype=complex)
+			yshape = tuple([1+len(self.freq)])+out[0].shape
+			y = np.ones(yshape,dtype=complex)
 			for i in range(roshape[0]):
 				ro[i,...] = np.vectorize(complex)(out[i*2,...], out[i*2+1,...])
-			
+
+			for i in range(1,yshape[0]):
+				y[i,...] = np.vectorize(complex)(out[len(self.freq)+i*2,...], \
+													out[len(self.freq)+i*2+1,...])		
+	
+			print('roshape, yshape: '+str(roshape)+' '+str(yshape))
+			print('ro.shape: '+str(ro.shape))
+			print('y.shape: '+str(y.shape))
+
 			if len(self.freq) == 2: # hardcode, because probably wont be used for other than 2
 
+				# save fat and water fractions
 				water = np.abs(ro[0,...])
 				fat = np.abs(ro[1,...])
 				water_nifti = nib.Nifti1Image(np.divide(water,water+fat), affine)
 				fat_nifti = nib.Nifti1Image(np.divide(fat,water+fat), affine)
-
-				#water_nifti = nib.Nifti1Image(water, affine)
-				#fat_nifti = nib.Nifti1Image(fat, affine)
-
 				water_out = self.proc_dir+'/water.nii.gz'
 				fat_out = self.proc_dir+'/fat.nii.gz'
 				mask = self.proc_dir+'/fieldmap_mask.nii.gz'
 				nib.save(water_nifti, water_out)
 				nib.save(fat_nifti, fat_out)
-
 				os.system('fslmaths '+water_out+' -mul '+mask+' '+water_out)
 				os.system('fslmaths '+fat_out+' -mul '+mask+' '+fat_out)
-				#os.system('rm '+water_out+' '+fat_out)
+
+				# save fat and water fraction errors
+
+				water_err = np.abs(y[1,...])
+				fat_err = np.abs(y[2,...])
+				water_err_nifti = nib.Nifti1Image(np.divide(water_err, water), affine)
+				fat_err_nifti = nib.Nifti1Image(np.divide(fat_err, fat), affine)
+				water_err_out = self.proc_dir+'/water_err.nii.gz'
+				fat_err_out = self.proc_dir+'/fat_err.nii.gz'
+
+				nib.save(water_err_nifti, water_err_out)
+				nib.save(fat_err_nifti, fat_err_out)
+				os.system('fslmaths '+water_err_out+' -mul '+mask+' '+water_err_out)
+				os.system('fslmaths '+fat_err_out+' -mul '+mask+' '+fat_err_out)
+
 			else:
 				print('Oh please, if there are other than 2 dixon components, \
 						you have to finish the code ... So... no results yet...')
@@ -159,6 +201,7 @@ class dixonProc():
 		print('Calculating water and fat ratio by least-squares fitting ... ')
 		data, field, roshift, header, affine = read_proc_dir()
 		data = apply_field_correction(data, field, roshift)
+		#data = apply_T2_correction(data, t2map, roshift)
 		A, c, d = make_Acd(roshift, self.freq)
 		out = np.apply_along_axis(fit_voxelvise, 0, data, roshift, A, c, d, self.freq)
 		save_results_to_nifti(out, affine, header)
