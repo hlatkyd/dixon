@@ -103,6 +103,7 @@ class dixonPreproc():
 				# combined_names is a list of lists containing real and imaginary parts	
 				procpar.append(item[0]+'/procpar')
 				ppr = procparReader(item[0]+'/procpar')
+				shift = int(float(ppr.read()['roshift'])*1000000)  # write it in microsec for naming
 				roshift.append(float(ppr.read()['roshift']))
 				hdr , data_re = fdfReader(item[0],'out').read()
 				hdr , data_im = fdfReader(item[1],'out').read()
@@ -112,15 +113,12 @@ class dixonPreproc():
 				phase_data = np.arctan2(np.imag(imgspace_data),np.real(imgspace_data))
 				
 				niftiwriter = niftiWriter(item[0]+'/procpar',magnitude_data)
-				output_name_magnitude = self.proc_dir+'/'+ \
-						item[0].rsplit('/')[-1].replace('_rawRE.img','_magnitude')
+				output_name_magnitude = self.proc_dir+'/'+self.pslabel+'_'+str(shift)+'us_mag'
 				niftiwriter.write(output_name_magnitude)
 				niftiwriter = niftiWriter(item[1]+'/procpar',phase_data)
-				output_name_phase = self.proc_dir+'/'+ \
-						item[1].rsplit('/')[-1].replace('_rawIM.img','_rawphase')
+				output_name_phase = self.proc_dir+'/'+self.pslabel+'_'+str(shift)+'us_ph'
 				niftiwriter.write(output_name_phase)
-				output_name_unwrapped = self.proc_dir+'/'+ \
-						item[0].rsplit('/')[-1].replace('_rawRE.img','_unwrapped_phase')
+				output_name_unwrapped = self.proc_dir+'/'+self.pslabel+'_'+str(shift)+'us_unwrapped_ph'
 
 				if float(ppr.read()['roshift']) == 0.00037:
 					plus_pi_data = imgspace_data

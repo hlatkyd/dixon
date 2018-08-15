@@ -16,7 +16,9 @@ import math
 import time
 
 class dixonProc():
-
+	"""	
+	Class for fat fraction calculation with dixon method.  
+	"""
 	def __init__(self, study_dir, check_preproc=True, freq=[0,1400]):
 		self.study_dir = study_dir
 		self.check_preproc = check_preproc
