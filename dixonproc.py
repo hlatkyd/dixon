@@ -19,7 +19,7 @@ class dixonProc():
 	"""	
 	Class for fat fraction calculation with dixon method.  
 	"""
-	def __init__(self, study_dir, check_preproc=True, freq=[0,1400]):
+	def __init__(self, study_dir, check_preproc=True, freq=[0,1400], saving=True):
 		self.study_dir = study_dir
 		self.check_preproc = check_preproc
 		self.freq = freq
@@ -27,6 +27,7 @@ class dixonProc():
 		self.base_procpar = study_dir+'/proc_dixon/procpar'
 		self.fieldmap= study_dir+'/proc_dixon/fieldmap_unwrapped.nii.gz' # 'fieldmap' in radians
 		self.preproc_data = study_dir+'/proc_dixon/preproc_data.txt'
+		self.saving = saving
 
 		if self.check_preproc:
 			self.proc_check_ok = os.path.isdir(self.proc_dir) \
@@ -146,13 +147,9 @@ class dixonProc():
 			for i in range(roshape[0]):
 				ro[i,...] = np.vectorize(complex)(out[i*2,...], out[i*2+1,...])
 
-			for i in range(1,yshape[0]):
-				y[i,...] = np.vectorize(complex)(out[len(self.freq)+i*2,...], \
-													out[len(self.freq)+i*2+1,...])		
-	
-			print('roshape, yshape: '+str(roshape)+' '+str(yshape))
-			print('ro.shape: '+str(ro.shape))
-			print('y.shape: '+str(y.shape))
+			for i in range(1,yshape[0]): # leaving out delta_field
+				y[i,...] = np.vectorize(complex)(out[len(self.freq)*2-1+i*2,...], \
+													out[len(self.freq)*2+i*2,...])		
 
 			if len(self.freq) == 2: # hardcode, because probably wont be used for other than 2
 
@@ -204,8 +201,12 @@ class dixonProc():
 		#data = apply_T2_correction(data, t2map, roshift)
 		A, c, d = make_Acd(roshift, self.freq)
 		out = np.apply_along_axis(fit_voxelvise, 0, data, roshift, A, c, d, self.freq)
-		save_results_to_nifti(out, affine, header)
+
+		if self.saving:
+			save_results_to_nifti(out, affine, header)
 		print('Done!')		
+
+		return out
 
 if __name__ == '__main__':
 	

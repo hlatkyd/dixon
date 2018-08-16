@@ -5,6 +5,7 @@ sys.path.append('/home/david/bin')
 sys.path.append('/home/david/dev/common')
 from readprocpar import procparReader
 from readfdf import fdfReader
+from writenifti import niftiWriter
 from scipy.ndimage.filters import gaussian_filter
 from scipy.ndimage.filters import median_filter
 from scipy.signal import wiener
@@ -28,7 +29,8 @@ def load_data():
 
 	folder = '/home/david/dev/dixon/s_2018080901'
 	name_list =  glob.glob(folder+'/fsems2*img')
-	ind = [0,3,6]
+	#ind = [0,3,6]
+	ind = [0,1,2,3,4,5,6]
 	rawre = sorted([i for i in name_list if 'rawRE' in i ])
 	rawim = sorted([i for i in name_list if 'rawIM' in i ])
 	#print('\n'.join(rawim))
@@ -37,6 +39,9 @@ def load_data():
 	data = []
 	roshift = []
 	for item in combined_names:
+		procpar = (item[0]+'/procpar')
+		#print(procpar)
+		print(item[0])
 		ppr = procparReader(item[0]+'/procpar')
 		roshift.append(float(ppr.read()['roshift']))
 		hdr , data_re = fdfReader(item[0],'out').read()
@@ -46,7 +51,7 @@ def load_data():
 	print(data[0].shape)
 	print(roshift)
 
-	return data, roshift
+	return data, roshift, procpar
 
 class dixon():
 
@@ -183,8 +188,8 @@ class dixon():
 				#print('elapsed time 2 : '+str(time.time()-start))
 				f = np.asarray(f + y[0]) # recalculate field
 				# make iteration stop on voxel basis
-				#if abs(y[0]) < 2:
-				#	break
+				if abs(y[0]) < 1:
+					break
 				#now = time.time()
 				#print('elapsed time 3 : '+ str(now-start))
 			#return (ro,y)
@@ -221,16 +226,26 @@ class dixon():
 		return ro, y , f, data # data is the masked data
 
 if __name__ == '__main__':
-	data, roshift = load_data()
+	data, roshift, procpar = load_data()
 	print('in data shape : '+str(data[0].shape))
 	cut_data = []
 	for item in data:
-		cut_data.append(item[:,58:59,:,:]) 
+		#cut_data.append(item[:,58:59,:,:]) 
+		cut_data.append(item[:,:,:,:]) 
+
+
+	phasemap1 = np.arctan2(np.imag(cut_data[0][:,:,:,:]),np.real(cut_data[0][:,:,:,:]))
+	phasemap2 = np.arctan2(np.imag(cut_data[1][:,:,:,:]),np.real(cut_data[1][:,:,:,:]))
+	phasemap3 = np.arctan2(np.imag(cut_data[2][:,:,:,:]),np.real(cut_data[2][:,:,:,:]))
+	magnitude1 = np.abs(cut_data[0])
+	magnitude2 = np.abs(cut_data[1])
+	magnitude3 = np.abs(cut_data[2])
+	print('phasemap shape: '+str(phasemap1.shape))
 
 
 	starttime = time.time()
-	dix = dixon(cut_data, roshift, freq=[0,1350])
-	ro, y, f, mask = dix.ideal(20)
+	dix = dixon(cut_data, roshift, freq=[0,1400])
+	ro, y, f, mask = dix.ideal(1000)
 
 
 	print('elapsed time at main : '+str(time.time()-starttime))
@@ -245,10 +260,33 @@ if __name__ == '__main__':
 
 	# plotting stuff
 	#fig, axes = plt.subplots(4,1)
+	
 	#ro_plot = []
+	# writing to nifti
+	
+
+	writer1 = niftiWriter(procpar, rel_ro1)
+	writer2 = niftiWriter(procpar, rel_ro2)
+	writer3 = niftiWriter(procpar, f)
+	writer4 = niftiWriter(procpar, phasemap1)
+	writer5 = niftiWriter(procpar, phasemap2)
+	writer6 = niftiWriter(procpar, phasemap3)
+	writer7 = niftiWriter(procpar, magnitude1)
+	writer8 = niftiWriter(procpar, magnitude2)
+	writer9 = niftiWriter(procpar, magnitude3)
+	writer10 = niftiWriter(procpar, y[0])
 
 
-
+	writer1.write('water')
+	writer2.write('fat')
+	writer3.write('fieldmap')
+	writer4.write('phase1')
+	writer5.write('phase2')
+	writer6.write('phase3')
+	writer7.write('magnitude1')
+	writer8.write('magnitude2')
+	writer9.write('magnitude3')
+	writer10.write('fielderror')
 
 	plt.subplot(2,4,1)
 	#ind 1 is the sliceindex
